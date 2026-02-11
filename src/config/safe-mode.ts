@@ -65,30 +65,16 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
   const safeConfig: OpenClawConfig = {
     // Meta information
     meta: {
-      version: "1.0.0",
       lastTouchedAt: new Date().toISOString(),
       lastTouchedVersion: "safe-mode",
-      notes: "Generated safe mode configuration for recovery",
     },
 
     // Gateway configuration - minimal and secure
     gateway: {
-      host: "127.0.0.1", // localhost only for security
       port: options.gatewayPort || 0, // auto-assign port if not specified
       auth: {
-        mode: "token",
         token: options.adminPassword || generateSecureToken(),
-        allowedOrigins: ["http://localhost", "https://localhost"],
-        enforceSecure: false, // Allow HTTP on localhost for recovery
       },
-      cors: {
-        enabled: false, // Disable CORS for security
-      },
-      remote: {
-        enabled: false, // Disable remote access
-      },
-      reloadOnConfigChange: false, // Disable auto-reload in safe mode
-      maxRequestSize: "1MB", // Minimal request size
     },
 
     // Logging - verbose for debugging recovery issues
@@ -102,8 +88,6 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
     models: {
       defaults: {
         chat: "gpt-3.5-turbo", // Conservative default
-        image: "", // Disable image models
-        voice: "", // Disable voice models
       },
       providers: {
         openai: {
@@ -134,7 +118,6 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
               maxTokens: 500,
               systemPrompt:
                 "You are a recovery assistant. Help the user fix OpenClaw configuration issues. Be concise and focus on essential operations only.",
-              capabilities: ["read", "write"], // Basic file operations only
             },
           ],
     },
@@ -183,10 +166,6 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
             enabled: true,
             host: "127.0.0.1",
             port: 0, // Auto-assign
-            auth: {
-              required: true,
-              token: options.adminPassword || generateSecureToken(),
-            },
           },
         }
       : {},
@@ -196,7 +175,6 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
       ? {}
       : {
           enabled: false,
-          autoEnable: false,
         },
 
     // Cron - disabled to prevent automated actions
@@ -213,20 +191,6 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
           enabled: false,
         },
 
-    // Security - maximum security settings
-    security: {
-      sandbox: {
-        enabled: true,
-        strict: true,
-      },
-      rateLimiting: {
-        enabled: true,
-        windowMs: 60000, // 1 minute
-        maxRequests: 10, // Very restrictive
-      },
-      ipAllowlist: options.adminAllowedIPs || ["127.0.0.1", "::1"],
-    },
-
     // Memory - minimal settings
     memory: {
       enabled: false, // Disable persistent memory for safety
@@ -234,12 +198,16 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
 
     // UI - minimal interface for recovery
     ui: {
-      enabled: true,
-      safeMode: true, // Special safe mode UI flag
-      theme: "minimal",
-      showAdvanced: false, // Hide advanced options
+      seamColor: "#666666",
     },
-  };
+
+    // TODO: These properties don't exist on OpenClawConfig but were in original implementation:
+    // - security (sandbox, rateLimiting, ipAllowlist)
+    // - gateway.host, gateway.cors, gateway.remote, gateway.reloadOnConfigChange, gateway.maxRequestSize
+    // - gateway.auth.mode, gateway.auth.allowedOrigins, gateway.auth.enforceSecure
+    // - ui.safeMode, ui.theme, ui.showAdvanced
+    // - agents capabilities property
+  } as any; // TODO: Remove 'as any' once non-existent properties are handled properly
 
   return safeConfig;
 }
@@ -261,17 +229,8 @@ export function validateSafeModeConfig(config: OpenClawConfig): {
 } {
   const issues: string[] = [];
 
-  // Check that gateway is localhost only
-  if (
-    config.gateway?.host &&
-    config.gateway.host !== "127.0.0.1" &&
-    config.gateway.host !== "localhost"
-  ) {
-    issues.push("Safe mode gateway must bind to localhost only");
-  }
-
   // Check that auth is enabled
-  if (!config.gateway?.auth?.token && !config.gateway?.auth?.password) {
+  if (!config.gateway?.auth?.token) {
     issues.push("Safe mode requires authentication");
   }
 
@@ -314,14 +273,10 @@ export function applySafeModeRestrictions(
   if (safeConfig.gateway) {
     safeConfig.gateway = {
       ...safeConfig.gateway,
-      host: "127.0.0.1",
       auth: {
         ...safeConfig.gateway.auth,
-        mode: "token",
         token: options.adminPassword || safeConfig.gateway.auth?.token || generateSecureToken(),
       },
-      remote: { enabled: false },
-      cors: { enabled: false },
     };
   }
 
@@ -337,7 +292,7 @@ export function applySafeModeRestrictions(
 
   // Disable plugins unless explicitly enabled
   if (!options.enablePlugins) {
-    safeConfig.plugins = { enabled: false, autoEnable: false };
+    safeConfig.plugins = { enabled: false };
   }
 
   // Disable cron unless explicitly enabled
@@ -361,10 +316,10 @@ export function applySafeModeRestrictions(
     ];
   }
 
-  // Mark as safe mode in UI
-  if (safeConfig.ui) {
-    safeConfig.ui.safeMode = true;
-  }
+  // TODO: The following properties don't exist on OpenClawConfig:
+  // - gateway.host, gateway.cors, gateway.remote
+  // - gateway.auth.mode
+  // - ui.safeMode
 
   return safeConfig;
 }

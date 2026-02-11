@@ -23,7 +23,7 @@ import { success, warn, danger } from "../globals.js";
 import { theme } from "../terminal/theme.js";
 
 export function addConfigAtomicCommands(program: Command): void {
-  const configCmd = program.command("config").description("Atomic configuration management");
+  const configCmd = program;
 
   // Backup commands
   configCmd
@@ -175,7 +175,7 @@ export function addConfigAtomicCommands(program: Command): void {
           validation.warnings.forEach((warning) => console.log(warn(`  - ${warning}`)));
         }
 
-        if (options.twelveFactor && validation.twelveFactorIssues.length > 0) {
+        if (options["12Factor"] && validation.twelveFactorIssues.length > 0) {
           console.log("");
           console.log(theme.info("12-Factor App Issues:"));
           validation.twelveFactorIssues.forEach((issue) => console.log(theme.info(`  - ${issue}`)));
