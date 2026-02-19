@@ -2,6 +2,10 @@ import type { Message } from "@grammyjs/types";
 import type { TelegramMediaRef } from "./bot-message-context.js";
 import type { TelegramContext } from "./bot/types.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import {
+  buildExpansoFixEventText,
+  isExpansoFixTelegramCallback,
+} from "../agents/tools/expanso-fix-button.js";
 import { hasControlCommand } from "../auto-reply/command-detection.js";
 import {
   createInboundDebouncer,
@@ -17,6 +21,7 @@ import { loadConfig } from "../config/config.js";
 import { writeConfigFile } from "../config/io.js";
 import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
 import { danger, logVerbose, warn } from "../globals.js";
+import { enqueueSystemEvent } from "../infra/system-events.js";
 import { readChannelAllowFromStore } from "../pairing/pairing-store.js";
 import { resolveAgentRoute } from "../routing/resolve-route.js";
 import { resolveThreadSessionKeys } from "../routing/session-key.js";
@@ -592,6 +597,31 @@ export const registerTelegramHandlers = ({
           return;
         }
 
+        return;
+      }
+
+      // Expanso fix button callback handler
+      // When the user clicks "🔧 Fix" after a validation failure, enqueue a
+      // system event so the Expanso Expert agent can trigger a fix run.
+      if (isExpansoFixTelegramCallback(data)) {
+        const peerId = isGroup ? buildTelegramGroupPeerId(chatId) : String(chatId);
+        const parentPeer = buildTelegramParentPeer({ isGroup, resolvedThreadId, chatId });
+        const route = resolveAgentRoute({
+          cfg,
+          channel: "telegram",
+          accountId,
+          peer: { kind: isGroup ? "group" : "direct", id: peerId },
+          parentPeer,
+        });
+        const eventText = buildExpansoFixEventText(
+          "telegram",
+          senderUsername || senderId,
+          senderId,
+        );
+        enqueueSystemEvent(eventText, {
+          sessionKey: route.sessionKey,
+          contextKey: `telegram:expanso-fix:${chatId}:${senderId}`,
+        });
         return;
       }
 
