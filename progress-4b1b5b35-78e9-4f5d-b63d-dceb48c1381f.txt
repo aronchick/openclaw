@@ -175,3 +175,70 @@ Verifier feedback indicated the validator tool (expanso_validate) was missing fr
   - To test Telegram `setMyCommands` synchronously, omit `deleteMyCommands` from the bot API mock. The implementation checks `typeof bot.api.deleteMyCommands === "function"` and takes an async chain only if it exists; without it, `setMyCommands` is called synchronously via `registerCommands()`.
   - `argsMenu: { arg: "action", title: "..." }` (not `"auto"`) is needed when you want a custom menu title that explains what each choice does — `"auto"` mode does not display a title.
   - Pre-existing type errors in `src/config/safe-mode.ts` etc. remain unrelated to Expanso work.
+
+## 2026-02-19 - US-009: Final Security Model Review and Audit
+
+- Created `src/security/expanso-audit.ts`:
+  - `ExpansoAuditEntry` — structured type for binary execution audit events (ts, yamlSize, success, exitCode, errorCount, warningCount, durationMs, sandboxed)
+  - `logExpansoExecution(entry, logger?)` — writes `{"event":"expanso.binary.execute",...}` JSON to stderr (logger is injectable for testing)
+  - `EXPANSO_SANDBOX_ISOLATION_FLAGS` — frozen readonly array of recommended Docker flags for network/FS isolation (`--network none`, `--read-only`, `--tmpfs /tmp`, `--security-opt no-new-privileges`, `--cap-drop ALL`, `--user 65534:65534`)
+  - `collectExpansoSandboxFindings(opts?)` — returns `SecurityAuditFinding[]`:
+    - `warn` → Docker not enabled (binary runs on host)
+    - `critical` → networkMode is not "none"
+    - `critical` → `--read-only` missing
+    - `warn` → `--cap-drop ALL` missing
+    - `warn` → container runs as root
+    - `info` → all isolation checks pass
+
+- Updated `src/agents/tools/expanso-validator.ts`:
+  - Added `auditLogger?: (entry: ExpansoAuditEntry) => void` to `ExpansoValidatorToolOptions`
+  - Wraps every `validateYaml()` call with `Date.now()` before/after for `durationMs`
+  - Emits a structured `ExpansoAuditEntry` via `auditLogger` after every execution
+  - Default `sandboxed: false` until Docker wrapping is implemented in production
+
+- Created `src/security/expanso-audit.test.ts`:
+  - 34 tests covering: flag array content/immutability, `logExpansoExecution` JSON format and all fields, `collectExpansoSandboxFindings` warn/critical/info paths and edge cases
+- Updated `src/agents/tools/expanso-validator.test.ts`:
+  - 12 new audit logger tests (48 total): auditLogger call count, success/failure flags, yamlSize, exitCode, error/warning counts, durationMs type, ts bounds, sandboxed=false, per-call logging
+
+- **Learnings:**
+  - `JSON.stringify` drops keys with `undefined` values — tests that check for key presence after JSON round-trip must account for this.
+  - Security audit findings follow the `SecurityAuditFinding` type from `audit-extra.ts` (re-exported from `audit-extra.sync.ts`). Import the type from `"./audit-extra.js"` in the security directory.
+  - `Object.freeze([...])` on an array throws on push in strict mode — vitest runs in strict mode so the immutability test works.
+  - Injecting an `auditLogger` option into tool factories is the cleanest DI pattern for side-effectful logging (same pattern as `generatePipeline` and `validateYaml` overrides).
+  - Pre-existing typecheck errors in `src/config/safe-mode.ts` and `src/gateway/server-methods/config-atomic.ts` are from other stories — confirm your own files are clean with `| grep -v "safe-mode\|startup-safety\|config-atomic"`.
+
+---
+
+## 2026-02-19 - US-010: Unified Documentation and User Guide
+
+- Created `docs/tools/expanso.md`:
+  - Frontmatter with title, summary, and `read_when` metadata
+  - **Overview** table of all three actions (build, validate, fix)
+  - **Natural Language Pipeline Builder** section with 3 example NL descriptions and an example generated YAML, plus a full pipeline schema reference table
+  - **Cloud Validation Sandbox** section documenting Docker image (`openclaw-expanso-sandbox:latest`), security settings (read-only root, no network, cap-drop ALL), and the full JSON validation result structure
+  - **Crusty Bot Integration** section with per-command subsections:
+    - `/expanso build <description>` with 3 concrete examples
+    - `/expanso validate <yaml>` with example usage
+    - `/expanso fix <description>` with 2 concrete examples
+  - **Interactive Fix Button** section (Discord component ID `expanso-fix`, Telegram `callback_data: expanso_fix`)
+  - **Discord Setup** and **Telegram Setup** subsections with config snippets
+  - **Security Model** section covering generator safety, validator sandbox, audit logging, and bot-side controls
+  - **Agent Tool Reference** with inline JSON examples for all 3 actions
+  - **Expanso Pipeline Concepts** reference table
+  - **Further Reading** links
+
+- Created `src/agents/tools/expanso-doc.test.ts`:
+  - 25 tests covering all acceptance criteria:
+    - File existence and non-empty content
+    - NL description examples (CSV, Kafka, HTTP/webhook, YAML output, all 3 actions)
+    - Bot command reference (/expanso build, validate, fix; Discord & Telegram setup; Fix button; callback_data and component ID)
+    - Required sections (Overview, Sandbox, Security, Audit, Agent tool reference, Pipeline concepts, Bloblang, Crusty integration)
+
+- **Learnings:**
+  - Vitest only discovers tests matching `src/**/*.test.ts` (or `extensions/**/*.test.ts`). Documentation tests must live in `src/`, not alongside the docs file.
+  - `import.meta.dirname` works in vitest tests for resolving relative paths to project-root files.
+  - `readFileSync(path, 'utf-8')` is the simplest way to test doc content without any special test infrastructure.
+  - Pre-existing typecheck errors in `safe-mode.ts` and `config-atomic.ts` do not block our changes — they were pre-existing before this story.
+
+---
