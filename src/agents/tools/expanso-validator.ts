@@ -25,6 +25,7 @@
 
 import { Type } from "@sinclair/typebox";
 import type { AnyAgentTool } from "./common.js";
+import { type ExpansoAuditEntry, logExpansoExecution } from "../../security/expanso-audit.js";
 import { jsonResult, readStringParam } from "./common.js";
 import {
   type ExpansoValidationResult,
@@ -64,6 +65,20 @@ export type ExpansoValidatorToolOptions = {
    * Defaults to {@link defaultValidateYaml} which runs the actual Docker sandbox.
    */
   validateYaml?: (yaml: string) => Promise<ExpansoValidationResult>;
+  /**
+   * Override the audit logging function.
+   *
+   * Called after every binary execution with a structured {@link ExpansoAuditEntry}.
+   * Defaults to {@link logExpansoExecution} which writes JSON to stderr.
+   * Inject a custom logger in tests to capture audit events without polluting stderr.
+   *
+   * @example
+   * const auditLog: ExpansoAuditEntry[] = [];
+   * const tool = createExpansoValidatorTool({
+   *   auditLogger: (entry) => auditLog.push(entry),
+   * });
+   */
+  auditLogger?: (entry: ExpansoAuditEntry) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -258,6 +273,7 @@ export async function defaultValidateYaml(yaml: string): Promise<ExpansoValidati
  */
 export function createExpansoValidatorTool(opts?: ExpansoValidatorToolOptions): AnyAgentTool {
   const validateYaml = opts?.validateYaml ?? defaultValidateYaml;
+  const auditLogger = opts?.auditLogger ?? logExpansoExecution;
 
   return {
     label: "Expanso Pipeline Validator",
@@ -273,7 +289,26 @@ export function createExpansoValidatorTool(opts?: ExpansoValidatorToolOptions): 
       const params = args as Record<string, unknown>;
       const yaml = readStringParam(params, "yaml", { required: true });
 
+      const startTs = Date.now();
       const validationResult = await validateYaml(yaml);
+      const durationMs = Date.now() - startTs;
+
+      // Emit a structured audit log entry for every binary execution.
+      // This satisfies the security requirement: every call to the Expanso
+      // binary is traceable in the audit trail (checkId: expanso.binary.execute).
+      const auditEntry: ExpansoAuditEntry = {
+        ts: startTs,
+        yamlSize: yaml.length,
+        success: validationResult.success,
+        exitCode: validationResult.exitCode,
+        errorCount: validationResult.errors.length,
+        warningCount: validationResult.warnings.length,
+        durationMs,
+        // The default implementation does not yet wrap the binary in Docker;
+        // mark sandboxed=false so the security audit can surface this as a warning.
+        sandboxed: false,
+      };
+      auditLogger(auditEntry);
 
       return jsonResult(validationResult);
     },

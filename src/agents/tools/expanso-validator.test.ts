@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
+import type { ExpansoAuditEntry } from "../../security/expanso-audit.js";
 import type { ExpansoValidationResult } from "./expanso-schemas.js";
 import {
   createExpansoValidatorTool,
@@ -390,5 +391,149 @@ describe("parseBinaryOutput", () => {
   it("extracts error codes like E001 from message", () => {
     const result = parseBinaryOutput("E001: schema violation", true);
     expect(result[0].code).toBe("E001");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit logger integration
+// ---------------------------------------------------------------------------
+
+describe("createExpansoValidatorTool - audit logger", () => {
+  it("calls auditLogger once per tool execution", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult()),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-1", { yaml: VALID_PIPELINE_YAML });
+    expect(auditLog).toHaveLength(1);
+  });
+
+  it("includes success=true in audit entry for a successful validation", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult()),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-2", { yaml: VALID_PIPELINE_YAML });
+    expect(auditLog[0].success).toBe(true);
+  });
+
+  it("includes success=false in audit entry for a failed validation", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(failureResult("bad YAML")),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-3", { yaml: INVALID_PIPELINE_YAML });
+    expect(auditLog[0].success).toBe(false);
+  });
+
+  it("records the yaml byte size in the audit entry", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult()),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-4", { yaml: VALID_PIPELINE_YAML });
+    expect(auditLog[0].yamlSize).toBe(VALID_PIPELINE_YAML.length);
+  });
+
+  it("records the exitCode in the audit entry", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult({ exitCode: 0 })),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-5", { yaml: VALID_PIPELINE_YAML });
+    expect(auditLog[0].exitCode).toBe(0);
+  });
+
+  it("records non-zero exitCode for failed validation", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(failureResult("error", { exitCode: 1 })),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-6", { yaml: INVALID_PIPELINE_YAML });
+    expect(auditLog[0].exitCode).toBe(1);
+  });
+
+  it("records errorCount matching the number of errors in the result", async () => {
+    const multiError: ExpansoValidationResult = {
+      success: false,
+      errors: [{ message: "err1" }, { message: "err2" }],
+      warnings: [],
+      exitCode: 1,
+    };
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(multiError),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-7", { yaml: INVALID_PIPELINE_YAML });
+    expect(auditLog[0].errorCount).toBe(2);
+  });
+
+  it("records warningCount matching the number of warnings in the result", async () => {
+    const withWarnings: ExpansoValidationResult = {
+      success: true,
+      errors: [],
+      warnings: [{ message: "w1" }, { message: "w2" }, { message: "w3" }],
+      exitCode: 0,
+    };
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(withWarnings),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-8", { yaml: VALID_PIPELINE_YAML });
+    expect(auditLog[0].warningCount).toBe(3);
+  });
+
+  it("records a positive durationMs in the audit entry", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult()),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-9", { yaml: VALID_PIPELINE_YAML });
+    expect(typeof auditLog[0].durationMs).toBe("number");
+    expect(auditLog[0].durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("records a ts (Unix epoch ms) in the audit entry", async () => {
+    const before = Date.now();
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult()),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-10", { yaml: VALID_PIPELINE_YAML });
+    const after = Date.now();
+    expect(auditLog[0].ts).toBeGreaterThanOrEqual(before);
+    expect(auditLog[0].ts).toBeLessThanOrEqual(after);
+  });
+
+  it("marks sandboxed=false in the default implementation", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult()),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-11", { yaml: VALID_PIPELINE_YAML });
+    // Default implementation does not wrap in Docker
+    expect(auditLog[0].sandboxed).toBe(false);
+  });
+
+  it("calls auditLogger for each separate tool execution", async () => {
+    const auditLog: ExpansoAuditEntry[] = [];
+    const tool = createExpansoValidatorTool({
+      validateYaml: mockValidator(successResult()),
+      auditLogger: (entry) => auditLog.push(entry),
+    });
+    await tool.execute("tc-audit-12a", { yaml: VALID_PIPELINE_YAML });
+    await tool.execute("tc-audit-12b", { yaml: VALID_PIPELINE_YAML });
+    expect(auditLog).toHaveLength(2);
   });
 });
