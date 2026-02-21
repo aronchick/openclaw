@@ -6,7 +6,13 @@
  * functionality to core operations only.
  */
 
+import crypto from "node:crypto";
+import { existsSync } from "node:fs";
+import { writeFile, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import type { OpenClawConfig } from "./types.js";
+import { resolveStateDir } from "./paths.js";
+import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 
 export type SafeModeOptions = {
   /** Whether to enable any external channels (default: false for maximum safety) */
@@ -216,7 +222,6 @@ export function createSafeModeConfig(options: SafeModeOptions = {}): OpenClawCon
  * Generate a secure random token for safe mode access
  */
 function generateSecureToken(): string {
-  const crypto = require("crypto");
   return crypto.randomBytes(32).toString("hex");
 }
 
@@ -339,7 +344,7 @@ export function shouldStartInSafeMode(env: NodeJS.ProcessEnv = process.env): boo
 
   // Check for safe mode sentinel file
   const sentinelPath = getSafeModeSentinelPath(env);
-  if (require("fs").existsSync(sentinelPath)) {
+  if (existsSync(sentinelPath)) {
     return true;
   }
 
@@ -352,15 +357,9 @@ export function shouldStartInSafeMode(env: NodeJS.ProcessEnv = process.env): boo
 /**
  * Get the path to the safe mode sentinel file
  */
-function getSafeModeSentinelPath(env: NodeJS.ProcessEnv): string {
-  const { resolveStateDir } = require("./paths.js");
-  const { resolveRequiredHomeDir } = require("../infra/dotenv.js");
-  const path = require("path");
-
-  const stateDir = resolveStateDir(env, () =>
-    resolveRequiredHomeDir(env, () => require("os").homedir()),
-  );
-  return path.join(stateDir, "safe-mode.sentinel");
+function getSafeModeSentinelPath(env: NodeJS.ProcessEnv = process.env): string {
+  const stateDir = resolveStateDir(env, () => resolveRequiredHomeDir(env));
+  return join(stateDir, "safe-mode.sentinel");
 }
 
 /**
@@ -368,7 +367,6 @@ function getSafeModeSentinelPath(env: NodeJS.ProcessEnv): string {
  */
 export async function createSafeModeSentinel(reason?: string): Promise<void> {
   const sentinelPath = getSafeModeSentinelPath();
-  const fs = require("fs").promises;
 
   const sentinelData = {
     created: new Date().toISOString(),
@@ -376,7 +374,7 @@ export async function createSafeModeSentinel(reason?: string): Promise<void> {
     pid: process.pid,
   };
 
-  await fs.writeFile(sentinelPath, JSON.stringify(sentinelData, null, 2), {
+  await writeFile(sentinelPath, JSON.stringify(sentinelData, null, 2), {
     encoding: "utf-8",
     mode: 0o600,
   });
@@ -387,10 +385,9 @@ export async function createSafeModeSentinel(reason?: string): Promise<void> {
  */
 export async function removeSafeModeSentinel(): Promise<void> {
   const sentinelPath = getSafeModeSentinelPath();
-  const fs = require("fs").promises;
 
   try {
-    await fs.unlink(sentinelPath);
+    await unlink(sentinelPath);
   } catch (error) {
     // Ignore if file doesn't exist
     if ((error as any)?.code !== "ENOENT") {
