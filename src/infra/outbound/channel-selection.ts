@@ -104,6 +104,6 @@ export async function resolveMessageChannelSelection(params: {
     console.warn(`[channel-selection] channels.defaults.defaultChannel ignored: ${reason}.`);
   }
   throw new Error(
-    `Channel is required when multiple channels are configured: ${configured.join(", ")}. Set delivery.channel explicitly or use a matching-channel session.`,
+    `Channel is required when multiple channels are configured: ${configured.join(", ")}. Set the channel parameter explicitly, or set channels.defaults.defaultChannel in config.`,
   );
 }
