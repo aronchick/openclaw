@@ -207,6 +207,61 @@ describe("messageCommand", () => {
     ).rejects.toThrow(/Channel is required/);
   });
 
+  it("uses defaultChannel from config when multiple channels configured", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = "token-abc";
+    process.env.DISCORD_BOT_TOKEN = "token-discord";
+    await setRegistry(
+      createTestRegistry([
+        {
+          pluginId: "telegram",
+          source: "test",
+          plugin: createStubPlugin({
+            id: "telegram",
+            label: "Telegram",
+            actions: {
+              listActions: () => ["send"],
+              handleAction: async ({ action, params, cfg, accountId }) =>
+                await handleTelegramAction(
+                  { action, to: params.to, accountId: accountId ?? undefined },
+                  cfg,
+                ),
+            },
+          }),
+        },
+        {
+          pluginId: "discord",
+          source: "test",
+          plugin: createStubPlugin({
+            id: "discord",
+            label: "Discord",
+            actions: {
+              listActions: () => ["send"],
+              handleAction: async ({ action, params, cfg, accountId }) =>
+                await handleDiscordAction(
+                  { action, to: params.to, accountId: accountId ?? undefined },
+                  cfg,
+                ),
+            },
+          }),
+        },
+      ]),
+    );
+    testConfig = { channels: { defaults: { defaultChannel: "discord" } } };
+    const deps = makeDeps();
+    const { messageCommand } = await loadMessageCommand();
+    // Should not throw — defaultChannel resolves the ambiguity
+    await expect(
+      messageCommand(
+        {
+          target: "channel:123456789",
+          message: "hi",
+        },
+        deps,
+        runtime,
+      ),
+    ).resolves.not.toThrow();
+  });
+
   it("sends via gateway for WhatsApp", async () => {
     callGatewayMock.mockResolvedValueOnce({ messageId: "g1" });
     await setRegistry(
