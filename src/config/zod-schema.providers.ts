@@ -24,6 +24,7 @@ export const ChannelsSchema = z
       .object({
         groupPolicy: GroupPolicySchema.optional(),
         heartbeat: ChannelHeartbeatVisibilitySchema,
+        defaultChannel: z.string().optional(),
       })
       .strict()
       .optional(),
