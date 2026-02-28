@@ -248,7 +248,6 @@ describe("messageCommand", () => {
     );
     testConfig = { channels: { defaults: { defaultChannel: "discord" } } };
     const deps = makeDeps();
-    const { messageCommand } = await loadMessageCommand();
     // Should not throw — defaultChannel resolves the ambiguity
     await expect(
       messageCommand(
@@ -260,6 +259,9 @@ describe("messageCommand", () => {
         runtime,
       ),
     ).resolves.not.toThrow();
+    // Verify discord was routed to, not telegram
+    expect(handleDiscordAction).toHaveBeenCalledOnce();
+    expect(handleTelegramAction).not.toHaveBeenCalled();
   });
 
   it("sends via gateway for WhatsApp", async () => {
