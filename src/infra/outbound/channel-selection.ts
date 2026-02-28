@@ -86,7 +86,14 @@ export async function resolveMessageChannelSelection(params: {
   if (configured.length === 0) {
     throw new Error("Channel is required (no configured channels detected).");
   }
+  const defaultChannel = params.cfg.channels?.defaults?.defaultChannel;
+  if (defaultChannel) {
+    const normalizedDefault = normalizeMessageChannel(defaultChannel);
+    if (normalizedDefault && isKnownChannel(normalizedDefault) && configured.includes(normalizedDefault as MessageChannelId)) {
+      return { channel: normalizedDefault as MessageChannelId, configured };
+    }
+  }
   throw new Error(
-    `Channel is required when multiple channels are configured: ${configured.join(", ")}`,
+    `Channel is required when multiple channels are configured: ${configured.join(", ")}. Set delivery.channel explicitly or use a matching-channel session.`,
   );
 }
