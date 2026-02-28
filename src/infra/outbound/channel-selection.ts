@@ -89,9 +89,19 @@ export async function resolveMessageChannelSelection(params: {
   const defaultChannel = params.cfg.channels?.defaults?.defaultChannel;
   if (defaultChannel) {
     const normalizedDefault = normalizeMessageChannel(defaultChannel);
-    if (normalizedDefault && isKnownChannel(normalizedDefault) && configured.includes(normalizedDefault as MessageChannelId)) {
+    if (
+      normalizedDefault &&
+      isKnownChannel(normalizedDefault) &&
+      configured.includes(normalizedDefault as MessageChannelId)
+    ) {
       return { channel: normalizedDefault as MessageChannelId, configured };
     }
+    // defaultChannel is set but doesn't match any active channel — warn so misconfiguration is diagnosable
+    const reason =
+      !normalizedDefault || !isKnownChannel(normalizedDefault)
+        ? `"${defaultChannel}" is not a recognised channel id`
+        : `"${defaultChannel}" is not currently configured (active: ${configured.join(", ")})`;
+    console.warn(`[channel-selection] channels.defaults.defaultChannel ignored: ${reason}.`);
   }
   throw new Error(
     `Channel is required when multiple channels are configured: ${configured.join(", ")}. Set delivery.channel explicitly or use a matching-channel session.`,
